@@ -1,6 +1,24 @@
 import streamlit as st
 from PIL import Image
 import numpy as np
+
+# --- CORREÇÃO CRÍTICA DE ERRO (PIL/Pillow > 9.0) ---
+# Se a constante ANTIALIAS foi removida, a definimos como LANCZOS para manter a compatibilidade 
+# com a versão 1.0.3 do MoviePy.
+try:
+    # Tenta usar a constante ANTIALIAS
+    if not hasattr(Image, 'ANTIALIAS'):
+        # Se não existir (versões novas do Pillow), usa LANCZOS
+        Image.ANTIALIAS = Image.Resampling.LANCZOS
+    
+    # Em versões muito novas, ANTIALIAS pode ter sido movida
+    if not hasattr(Image, 'ANTIALIAS'):
+        Image.ANTIALIAS = Image.LANCZOS
+except AttributeError:
+    # Fallback para LANCZOS se ANTIALIAS falhar totalmente
+    Image.ANTIALIAS = Image.Resampling.LANCZOS
+
+
 from moviepy.editor import ImageClip, concatenate_videoclips
 import os
 import tempfile
@@ -27,7 +45,6 @@ def create_cartoon_animation(image_path, duration_sec, fps):
         clip_zoom = ImageClip(np_img, duration=zoom_duration)
 
         # 2. Aplica a função de redimensionamento (resize) que depende do tempo (t)
-        # CORREÇÃO: Usa a função lambda corretamente dentro do .fx(clip.resize(...))
         clip_zoom = clip_zoom.fx(
             lambda clip: clip.resize(
                 lambda t: 1 + (final_scale - 1) * t / zoom_duration
@@ -73,7 +90,6 @@ def create_cartoon_animation(image_path, duration_sec, fps):
         final_clip = final_clip.set_fps(fps)
 
         # Salva o arquivo de vídeo temporário
-        # O 'delete=False' garante que o arquivo existe para o Streamlit ler
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_file:
             output_path = temp_file.name
             
