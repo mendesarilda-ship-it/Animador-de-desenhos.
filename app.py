@@ -2,16 +2,11 @@ import streamlit as st
 from PIL import Image
 import numpy as np
 
-# --- CORREÇÃO CRÍTICA DE ERRO (PIL/Pillow > 9.0) ---
-# Se a constante ANTIALIAS foi removida, a definimos como LANCZOS para manter a compatibilidade 
-# com a versão 1.0.3 do MoviePy.
+# --- 1. CORREÇÃO CRÍTICA DE ERRO (PIL/Pillow > 9.0) ---
+# Garante a compatibilidade com MoviePy 1.0.3 resolvendo o erro ANTIALIAS
 try:
-    # Tenta usar a constante ANTIALIAS
     if not hasattr(Image, 'ANTIALIAS'):
-        # Se não existir (versões novas do Pillow), usa LANCZOS
         Image.ANTIALIAS = Image.Resampling.LANCZOS
-    
-    # Em versões muito novas, ANTIALIAS pode ter sido movida
     if not hasattr(Image, 'ANTIALIAS'):
         Image.ANTIALIAS = Image.LANCZOS
 except AttributeError:
@@ -19,74 +14,103 @@ except AttributeError:
     Image.ANTIALIAS = Image.Resampling.LANCZOS
 
 
-from moviepy.editor import ImageClip, concatenate_videoclips
+from moviepy.editor import ImageClip, concatenate_videoclips, CompositeVideoClip
 import os
 import tempfile
+import math
 
-# --- 1. FUNÇÃO DE GERAÇÃO DE VÍDEO (O MOTOR DA IA) ---
-def create_cartoon_animation(image_path, duration_sec, fps):
+# --- 2. FUNÇÃO PRINCIPAL DE GERAÇÃO DE VÍDEO (AGORA COM RECORTES) ---
+def create_cartoon_animation(parts, duration_sec, fps):
     """
-    Cria uma animação de zoom e pan (movimento lateral) a partir de uma imagem.
-    Usa o MoviePy para gerar o vídeo final.
+    Cria uma animação de recortes (cutout animation) a partir de clipes de partes separadas.
     """
     try:
-        # Carrega a imagem
-        img = Image.open(image_path).convert("RGB")
-        width, height = img.size
+        clip_duration = duration_sec
+        final_clips = []
         
-        # Converte a imagem PIL para um array numpy (formato que o MoviePy usa)
-        np_img = np.array(img)
+        # ----------------------------------------------------------------------
+        # PASSO 1: CARREGAR E PREPARAR AS PARTES ESTÁTICAS (ORDEM DE COMPOSIÇÃO: Fundo -> Frente)
+        # ----------------------------------------------------------------------
+        
+        # O MoviePy compõe os clipes na ordem em que são listados.
+        
+        # Partes da Base (FUNDÃO)
+        base_parts = ['Tronco/Corpo Base', 'Vestido', 'Perna']
+        
+        # Partes de Cima (FRENTE)
+        front_parts = ['Mão Direita', 'Mão Esquerda', 'Dedos', 'Cabelo', 'Olhos']
+        
+        # ----------------------------------------------------------------------
+        # 1. TRONCO (Corpo Base - FUNDO) - Essencial para definir o tamanho do vídeo
+        # ----------------------------------------------------------------------
+        if 'Tronco/Corpo Base' in parts:
+            np_base = np.array(parts['Tronco/Corpo Base'].convert("RGBA"))
+            clip_base = ImageClip(np_base, duration=clip_duration).set_pos(("center", "center"))
+            
+            # Definimos o tamanho final do vídeo baseado no tronco
+            video_size = clip_base.size
+            final_clips.append(clip_base)
+        else:
+            # Não pode animar sem o corpo base
+            st.error("É necessário carregar o arquivo 'Tronco/Corpo Base' para iniciar a animação.")
+            return None
+        
+        # ----------------------------------------------------------------------
+        # 2. OUTRAS PARTES ESTÁTICAS (sem movimento por enquanto)
+        # ----------------------------------------------------------------------
+        
+        # Adiciona Vestido e Perna (geralmente estáticos ou com movimento mínimo)
+        for name in ['Vestido', 'Perna']:
+            if name in parts:
+                np_part = np.array(parts[name].convert("RGBA"))
+                clip_part = ImageClip(np_part, duration=clip_duration).set_pos(("center", "center"))
+                final_clips.append(clip_part)
+                
+        # ----------------------------------------------------------------------
+        # 3. EXEMPLO BÁSICO DE MOVIMENTO: MÃO ESQUERDA
+        # ----------------------------------------------------------------------
+        
+        if 'Mão Esquerda' in parts:
+            np_mao_esq = np.array(parts['Mão Esquerda'].convert("RGBA"))
+            clip_mao_esq = ImageClip(np_mao_esq, duration=clip_duration)
+            
+            # POSICIONAMENTO DA JUNTA (AJUSTE MANUAL CRÍTICO!)
+            # Você deve ajustar esses valores (X, Y) para o ponto do ombro na sua imagem de recorte
+            OMBRO_X = video_size[0] * 0.55  # Exemplo: 55% da largura
+            OMBRO_Y = video_size[1] * 0.40  # Exemplo: 40% da altura (parte superior)
+            
+            # 1. POSIÇÃO DA PARTE (Onde o ombro vai estar na tela)
+            clip_mao_esq = clip_mao_esq.set_pos((OMBRO_X, OMBRO_Y))
+            
+            # 2. FUNÇÃO DE MOVIMENTO (Rotação: -10 graus a 10 graus)
+            def get_rotation(t):
+                # Rotação suave (senoidal) para simular um aceno leve
+                return 10 * math.sin(2 * math.pi * t / clip_duration) 
 
-        # --- PARTE 1: Movimento de Zoom In (Clip 1) ---
-        zoom_duration = duration_sec / 2
-        final_scale = 1.2 # Fator de escala final (Zoom In de 1.0x para 1.2x)
+            # 3. APLICAR ROTAÇÃO
+            # O 'center=(0,0)' é crucial para garantir que a rotação aconteça a partir do centro do clipe.
+            clip_mao_esq = clip_mao_esq.fx(lambda clip: clip.rotate(get_rotation, resample='bicubic', center=(0,0)))
+            
+            final_clips.append(clip_mao_esq)
+            
+        # ----------------------------------------------------------------------
+        # 4. ÚLTIMAS PARTES (ROSTO, CABEÇA) - FRENTE DA COMPOSIÇÃO
+        # ----------------------------------------------------------------------
 
-        # 1. Define o Clip e a duração
-        clip_zoom = ImageClip(np_img, duration=zoom_duration)
+        # Adiciona Cabelo, Olhos, Mão Direita e Dedos (geralmente por cima de tudo)
+        for name in ['Cabelo', 'Olhos', 'Mão Direita', 'Dedos']:
+            if name in parts:
+                np_part = np.array(parts[name].convert("RGBA"))
+                clip_part = ImageClip(np_part, duration=clip_duration).set_pos(("center", "center"))
+                final_clips.append(clip_part)
 
-        # 2. Aplica a função de redimensionamento (resize) que depende do tempo (t)
-        clip_zoom = clip_zoom.fx(
-            lambda clip: clip.resize(
-                lambda t: 1 + (final_scale - 1) * t / zoom_duration
-            )
-        )
-        
-        # 3. Centraliza a posição da imagem
-        clip_zoom = clip_zoom.set_pos("center")
-        
-        # --- PARTE 2: Movimento de Pan Horizontal (Clip 2) ---
-        pan_duration = duration_sec - zoom_duration
-        
-        # Define a função de pan (move o quadro de visualização)
-        def pan_frame(t):
-            # Calcula o percentual de tempo decorrido
-            t_percent = t / pan_duration
-            
-            # Define o tamanho do corte (mantemos um zoom leve de 1.1x para o pan)
-            crop_size_w = int(width / 1.1)
-            crop_size_h = int(height / 1.1)
-            
-            # Posição inicial (x_start) e final (x_end) do canto superior esquerdo
-            x_start = 0
-            # x_end é o máximo que podemos mover para o lado sem sair da imagem
-            x_end = width - crop_size_w
-            
-            # Posição x atual (Pan da esquerda para a direita)
-            x_current = int(x_start + t_percent * (x_end - x_start))
-            
-            # y é constante (mantemos o topo do corte)
-            y_current = 0 
-            
-            # Corta a imagem (crop)
-            cropped_img = img.crop((x_current, y_current, x_current + crop_size_w, y_current + crop_size_h))
-            
-            # Retorna o frame como um array numpy
-            return np.array(cropped_img)
 
-        clip_pan = ImageClip(np_img, duration=pan_duration).set_make_frame(pan_frame)
+        # ----------------------------------------------------------------------
+        # 5. COMPOSIÇÃO FINAL
+        # ----------------------------------------------------------------------
         
-        # Junta os dois clipes
-        final_clip = concatenate_videoclips([clip_zoom, clip_pan], method="compose")
+        # Junta todos os clipes de partes do corpo (estáticos e animados)
+        final_clip = CompositeVideoClip(final_clips, size=video_size)
         final_clip = final_clip.set_fps(fps)
 
         # Salva o arquivo de vídeo temporário
@@ -106,71 +130,81 @@ def create_cartoon_animation(image_path, duration_sec, fps):
         return output_path
 
     except Exception as e:
-        # Exibe uma mensagem de erro mais clara
         st.error(f"Erro ao gerar o vídeo: {e}")
-        st.warning("Verifique se o 'packages.txt' com 'ffmpeg' está na raiz do seu repositório.")
+        st.warning("Verifique se você carregou todas as partes necessárias e se o 'packages.txt' com 'ffmpeg' está na raiz.")
         return None
 
+# --- 3. INTERFACE STREAMLIT COM MÚLTIPLOS UPLOADS ---
+st.set_page_config(page_title="Gerador de Vídeo de Recortes", layout="wide")
+st.title("🎬 Animação de Recortes (Cutout Animation)")
 
-# --- 2. INTERFACE STREAMLIT ---
-st.set_page_config(page_title="Gerador de Vídeo Cartunesco", layout="wide")
-st.title("🎬 Gerador de Vídeo Cartunesco (MoviePy)")
+st.sidebar.header("1. Carregar Partes (PNG Transparente)")
 
-st.sidebar.header("Configurações")
+# Mapeamento dos uploads para nomes de partes
+uploaded_parts = {}
 
-# Carregamento da imagem 
-uploaded_file = st.file_uploader(
-    "1. Carregue sua imagem de desenho cartunesco:", 
-    type=["jpg", "jpeg", "png"]
-)
+# Lista de partes que o usuário deve carregar (incluindo "dedos")
+part_names = [
+    'Tronco/Corpo Base',
+    'Vestido', 
+    'Perna',
+    'Cabelo', 
+    'Olhos', 
+    'Mão Direita', 
+    'Mão Esquerda', 
+    'Dedos' # Novo!
+]
 
-if uploaded_file is not None:
-    # Salva o arquivo temporariamente para o MoviePy poder ler pelo caminho
-    with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-        tmp_file.write(uploaded_file.read())
-        image_path = tmp_file.name
+# Cria os botões de upload dinamicamente
+for name in part_names:
+    file = st.sidebar.file_uploader(f"Carregar: {name} (.png)", key=name, type=["png"])
+    if file:
+        uploaded_parts[name] = Image.open(file)
 
-    # Exibir a imagem carregada
-    st.subheader("Imagem Carregada")
-    st.image(image_path, use_column_width=True)
+st.sidebar.header("2. Configurações")
+# Parâmetros
+duration = st.sidebar.slider("Duração do Vídeo (segundos)", 
+                             min_value=3, max_value=10, value=5)
+fps = st.sidebar.slider("Quadros por Segundo (FPS)", 
+                        min_value=10, max_value=30, value=24)
+
+
+if st.button("3. Gerar Animação"):
     
-    st.subheader("Ajustes de Animação")
-    
-    # Parâmetros
-    duration = st.sidebar.slider("Duração do Vídeo (segundos)", 
-                                 min_value=3, max_value=10, value=5)
-    fps = st.sidebar.slider("Quadros por Segundo (FPS)", 
-                            min_value=10, max_value=30, value=24)
-    
-    if st.button("2. Gerar Animação"):
+    # ----------------------------------------------------------------------
+    # VERIFICAÇÃO MÍNIMA (O corpo base é obrigatório)
+    # ----------------------------------------------------------------------
+    if 'Tronco/Corpo Base' not in uploaded_parts:
+        st.error("Por favor, carregue a imagem do 'Tronco/Corpo Base' para iniciar.")
+    else:
+        # ----------------------------------------------------------------------
+        # PROCESSO DE GERAÇÃO
+        # ----------------------------------------------------------------------
         video_output_path = None
         try:
-            with st.spinner(f"Criando vídeo de {duration}s..."):
-                video_output_path = create_cartoon_animation(image_path, duration, fps)
+            with st.spinner(f"Compondo animação de {duration}s..."):
+                # Passa o dicionário de imagens PIL para a função de animação
+                video_output_path = create_cartoon_animation(uploaded_parts, duration, fps)
             
             if video_output_path:
                 st.subheader("Vídeo Gerado!")
                 
-                # Leitura dos bytes do vídeo para exibição no Streamlit
                 with open(video_output_path, "rb") as video_file:
                     video_bytes = video_file.read()
                 
                 st.video(video_bytes, format='video/mp4')
                 
-                # Opção de Download
                 st.download_button(
                     label="Baixar Vídeo MP4",
                     data=video_bytes,
-                    file_name="animacao_cartunesca.mp4",
+                    file_name="animacao_recortes.mp4",
                     mime="video/mp4"
                 )
                 
         finally:
-            # Limpa os arquivos temporários, mesmo se houver erro
+            # Limpa os arquivos temporários
             if video_output_path and os.path.exists(video_output_path):
                 os.unlink(video_output_path)
-            if image_path and os.path.exists(image_path):
-                 os.unlink(image_path)
             
 else:
-    st.info("Aguardando o upload da sua imagem cartunesca para começar.")
+    st.info("Carregue as partes da sua personagem na barra lateral e clique em 'Gerar Animação'.")
