@@ -10,7 +10,6 @@ try:
     if not hasattr(Image, 'ANTIALIAS'):
         Image.ANTIALIAS = Image.LANCZOS
 except AttributeError:
-    # Fallback para LANCZOS se ANTIALIAS falhar totalmente
     Image.ANTIALIAS = Image.Resampling.LANCZOS
 
 
@@ -29,87 +28,118 @@ def create_cartoon_animation(parts, duration_sec, fps):
         final_clips = []
         
         # ----------------------------------------------------------------------
-        # PASSO 1: CARREGAR E PREPARAR AS PARTES ESTÁTICAS (ORDEM DE COMPOSIÇÃO: Fundo -> Frente)
+        # PASSO 1: CARREGAR E PREPARAR AS PARTES NA ORDEM DE COMPOSIÇÃO (Fundo -> Frente)
         # ----------------------------------------------------------------------
         
         # O MoviePy compõe os clipes na ordem em que são listados.
+        # Definiremos a ordem para montagem correta.
         
-        # Partes da Base (FUNDÃO)
-        base_parts = ['Tronco/Corpo Base', 'Vestido', 'Perna']
-        
-        # Partes de Cima (FRENTE)
-        front_parts = ['Mão Direita', 'Mão Esquerda', 'Dedos', 'Cabelo', 'Olhos']
-        
-        # ----------------------------------------------------------------------
-        # 1. TRONCO (Corpo Base - FUNDO) - Essencial para definir o tamanho do vídeo
-        # ----------------------------------------------------------------------
-        if 'Tronco/Corpo Base' in parts:
-            np_base = np.array(parts['Tronco/Corpo Base'].convert("RGBA"))
-            clip_base = ImageClip(np_base, duration=clip_duration).set_pos(("center", "center"))
-            
-            # Definimos o tamanho final do vídeo baseado no tronco
-            video_size = clip_base.size
-            final_clips.append(clip_base)
-        else:
-            # Não pode animar sem o corpo base
-            st.error("É necessário carregar o arquivo 'Tronco/Corpo Base' para iniciar a animação.")
+        # O "Vestido e Tronco" é a base, então ele deve ser o primeiro a ser processado.
+        if 'Vestido e Tronco' not in parts:
+            st.error("É necessário carregar o arquivo 'Vestido e Tronco' para iniciar a animação.")
             return None
         
-        # ----------------------------------------------------------------------
-        # 2. OUTRAS PARTES ESTÁTICAS (sem movimento por enquanto)
-        # ----------------------------------------------------------------------
-        
-        # Adiciona Vestido e Perna (geralmente estáticos ou com movimento mínimo)
-        for name in ['Vestido', 'Perna']:
-            if name in parts:
-                np_part = np.array(parts[name].convert("RGBA"))
-                clip_part = ImageClip(np_part, duration=clip_duration).set_pos(("center", "center"))
-                final_clips.append(clip_part)
-                
-        # ----------------------------------------------------------------------
-        # 3. EXEMPLO BÁSICO DE MOVIMENTO: MÃO ESQUERDA
-        # ----------------------------------------------------------------------
-        
-        if 'Mão Esquerda' in parts:
-            np_mao_esq = np.array(parts['Mão Esquerda'].convert("RGBA"))
-            clip_mao_esq = ImageClip(np_mao_esq, duration=clip_duration)
+        np_base_body = np.array(parts['Vestido e Tronco'].convert("RGBA"))
+        clip_base_body = ImageClip(np_base_body, duration=clip_duration).set_pos(("center", "center"))
+        video_size = clip_base_body.size # Define o tamanho final do vídeo baseado nesta peça
+        final_clips.append(clip_base_body)
+
+        # PERNAS (Podemos ter uma perna esquerda e uma perna direita, ou usar a mesma e espelhar)
+        # Vamos usar 'Perna 1' e 'Perna 2' conforme seus uploads
+        if 'Perna 1' in parts:
+            np_perna1 = np.array(parts['Perna 1'].convert("RGBA"))
+            clip_perna1 = ImageClip(np_perna1, duration=clip_duration)
+            # POSICIONAMENTO DA PERNA 1 (AJUSTE MANUAL!)
+            # Posicione a perna na parte inferior do corpo.
+            clip_perna1 = clip_perna1.set_pos((video_size[0]*0.45, video_size[1]*0.65)) 
+            final_clips.append(clip_perna1)
+
+        if 'Perna 2' in parts:
+            np_perna2 = np.array(parts['Perna 2'].convert("RGBA"))
+            clip_perna2 = ImageClip(np_perna2, duration=clip_duration)
+            # POSICIONAMENTO DA PERNA 2 (AJUSTE MANUAL!)
+            # Posicione a perna na parte inferior do corpo, um pouco mais para a direita.
+            clip_perna2 = clip_perna2.set_pos((video_size[0]*0.55, video_size[1]*0.65)) 
+            final_clips.append(clip_perna2)
+
+
+        # BRAÇO ESQUERDO (Exemplo de Animação: Rotação para simular um aceno leve)
+        # Assumindo Image 1 como o braço esquerdo
+        if 'Braço Esquerdo' in parts:
+            np_braco_esq = np.array(parts['Braço Esquerdo'].convert("RGBA"))
+            clip_braco_esq = ImageClip(np_braco_esq, duration=clip_duration)
             
             # POSICIONAMENTO DA JUNTA (AJUSTE MANUAL CRÍTICO!)
-            # Você deve ajustar esses valores (X, Y) para o ponto do ombro na sua imagem de recorte
-            OMBRO_X = video_size[0] * 0.55  # Exemplo: 55% da largura
-            OMBRO_Y = video_size[1] * 0.40  # Exemplo: 40% da altura (parte superior)
+            # Esses valores (X, Y) precisam ser ajustados para o ponto do ombro na sua imagem de recorte
+            # Baseado na sua imagem original, o ombro esquerdo está mais para a direita do centro.
+            OMBRO_ESQ_X = video_size[0] * 0.45 # Ajuste
+            OMBRO_ESQ_Y = video_size[1] * 0.35 # Ajuste
             
             # 1. POSIÇÃO DA PARTE (Onde o ombro vai estar na tela)
-            clip_mao_esq = clip_mao_esq.set_pos((OMBRO_X, OMBRO_Y))
+            # O ponto 'center=(0.1*clip_braco_esq.w, 0.1*clip_braco_esq.h)' é um palpite 
+            # para o pivô do ombro dentro da imagem do braço.
+            clip_braco_esq = clip_braco_esq.set_pos((OMBRO_ESQ_X, OMBRO_ESQ_Y))
             
             # 2. FUNÇÃO DE MOVIMENTO (Rotação: -10 graus a 10 graus)
-            def get_rotation(t):
-                # Rotação suave (senoidal) para simular um aceno leve
+            def get_rotation_esq(t):
                 return 10 * math.sin(2 * math.pi * t / clip_duration) 
 
             # 3. APLICAR ROTAÇÃO
-            # O 'center=(0,0)' é crucial para garantir que a rotação aconteça a partir do centro do clipe.
-            clip_mao_esq = clip_mao_esq.fx(lambda clip: clip.rotate(get_rotation, resample='bicubic', center=(0,0)))
+            # O 'center' no rotate FX define o ponto de pivô DENTRO da imagem do braço.
+            # Você precisa ajustar esse ponto para onde o braço se conecta ao corpo.
+            clip_braco_esq = clip_braco_esq.fx(
+                lambda clip: clip.rotate(
+                    get_rotation_esq, 
+                    resample='bicubic', 
+                    center=(clip.w * 0.1, clip.h * 0.1) # Ajuste: centro de rotação dentro da imagem do braço
+                )
+            )
+            final_clips.append(clip_braco_esq)
+
+
+        # BRAÇO DIREITO (Sem animação, apenas posicionamento)
+        # Assumindo Image 6 como o braço direito
+        if 'Braço Direito' in parts:
+            np_braco_dir = np.array(parts['Braço Direito'].convert("RGBA"))
+            clip_braco_dir = ImageClip(np_braco_dir, duration=clip_duration)
+            # POSICIONAMENTO DA JUNTA (AJUSTE MANUAL!)
+            OMBRO_DIR_X = video_size[0] * 0.55 
+            OMBRO_DIR_Y = video_size[1] * 0.35 
+            clip_braco_dir = clip_braco_dir.set_pos((OMBRO_DIR_X, OMBRO_DIR_Y))
+            final_clips.append(clip_braco_dir)
             
-            final_clips.append(clip_mao_esq)
+        # DEDOS (Seria uma sub-parte de uma mão. Para simplificar, vou tratar como peça separada)
+        if 'Dedos' in parts:
+            np_dedos = np.array(parts['Dedos'].convert("RGBA"))
+            clip_dedos = ImageClip(np_dedos, duration=clip_duration)
+            # Posicione os dedos sobre a Mão Esquerda (assumindo que seja essa)
+            # Os offsets são em relação à posição da mão/braço
+            clip_dedos = clip_dedos.set_pos((OMBRO_ESQ_X + 50, OMBRO_ESQ_Y + 100)) # Ajuste
+            final_clips.append(clip_dedos)
+
+        # CABEÇA (Sobre o tronco)
+        if 'Cabeça' in parts:
+            np_cabeca = np.array(parts['Cabeça'].convert("RGBA"))
+            clip_cabeca = ImageClip(np_cabeca, duration=clip_duration)
+            # Posicionamento da cabeça (ajuste para o pescoço)
+            clip_cabeca = clip_cabeca.set_pos(("center", video_size[1]*0.15)) # 15% do topo
+            final_clips.append(clip_cabeca)
             
-        # ----------------------------------------------------------------------
-        # 4. ÚLTIMAS PARTES (ROSTO, CABEÇA) - FRENTE DA COMPOSIÇÃO
-        # ----------------------------------------------------------------------
-
-        # Adiciona Cabelo, Olhos, Mão Direita e Dedos (geralmente por cima de tudo)
-        for name in ['Cabelo', 'Olhos', 'Mão Direita', 'Dedos']:
-            if name in parts:
-                np_part = np.array(parts[name].convert("RGBA"))
-                clip_part = ImageClip(np_part, duration=clip_duration).set_pos(("center", "center"))
-                final_clips.append(clip_part)
+        # OLHOS (Sobre a cabeça)
+        if 'Olhos' in parts:
+            np_olhos = np.array(parts['Olhos'].convert("RGBA"))
+            clip_olhos = ImageClip(np_olhos, duration=clip_duration)
+            # Posicionamento dos olhos (ajuste para ficarem na face da cabeça)
+            clip_olhos = clip_olhos.set_pos(("center", video_size[1]*0.25)) # Ajuste
+            final_clips.append(clip_olhos)
 
 
         # ----------------------------------------------------------------------
-        # 5. COMPOSIÇÃO FINAL
+        # PASSO 2: COMPOSIÇÃO FINAL
         # ----------------------------------------------------------------------
         
         # Junta todos os clipes de partes do corpo (estáticos e animados)
+        # Garante que o CompositeVideoClip tem o tamanho correto
         final_clip = CompositeVideoClip(final_clips, size=video_size)
         final_clip = final_clip.set_fps(fps)
 
@@ -134,77 +164,4 @@ def create_cartoon_animation(parts, duration_sec, fps):
         st.warning("Verifique se você carregou todas as partes necessárias e se o 'packages.txt' com 'ffmpeg' está na raiz.")
         return None
 
-# --- 3. INTERFACE STREAMLIT COM MÚLTIPLOS UPLOADS ---
-st.set_page_config(page_title="Gerador de Vídeo de Recortes", layout="wide")
-st.title("🎬 Animação de Recortes (Cutout Animation)")
-
-st.sidebar.header("1. Carregar Partes (PNG Transparente)")
-
-# Mapeamento dos uploads para nomes de partes
-uploaded_parts = {}
-
-# Lista de partes que o usuário deve carregar (incluindo "dedos")
-part_names = [
-    'Tronco/Corpo Base',
-    'Vestido', 
-    'Perna',
-    'Cabelo', 
-    'Olhos', 
-    'Mão Direita', 
-    'Mão Esquerda', 
-    'Dedos' # Novo!
-]
-
-# Cria os botões de upload dinamicamente
-for name in part_names:
-    file = st.sidebar.file_uploader(f"Carregar: {name} (.png)", key=name, type=["png"])
-    if file:
-        uploaded_parts[name] = Image.open(file)
-
-st.sidebar.header("2. Configurações")
-# Parâmetros
-duration = st.sidebar.slider("Duração do Vídeo (segundos)", 
-                             min_value=3, max_value=10, value=5)
-fps = st.sidebar.slider("Quadros por Segundo (FPS)", 
-                        min_value=10, max_value=30, value=24)
-
-
-if st.button("3. Gerar Animação"):
-    
-    # ----------------------------------------------------------------------
-    # VERIFICAÇÃO MÍNIMA (O corpo base é obrigatório)
-    # ----------------------------------------------------------------------
-    if 'Tronco/Corpo Base' not in uploaded_parts:
-        st.error("Por favor, carregue a imagem do 'Tronco/Corpo Base' para iniciar.")
-    else:
-        # ----------------------------------------------------------------------
-        # PROCESSO DE GERAÇÃO
-        # ----------------------------------------------------------------------
-        video_output_path = None
-        try:
-            with st.spinner(f"Compondo animação de {duration}s..."):
-                # Passa o dicionário de imagens PIL para a função de animação
-                video_output_path = create_cartoon_animation(uploaded_parts, duration, fps)
-            
-            if video_output_path:
-                st.subheader("Vídeo Gerado!")
-                
-                with open(video_output_path, "rb") as video_file:
-                    video_bytes = video_file.read()
-                
-                st.video(video_bytes, format='video/mp4')
-                
-                st.download_button(
-                    label="Baixar Vídeo MP4",
-                    data=video_bytes,
-                    file_name="animacao_recortes.mp4",
-                    mime="video/mp4"
-                )
-                
-        finally:
-            # Limpa os arquivos temporários
-            if video_output_path and os.path.exists(video_output_path):
-                os.unlink(video_output_path)
-            
-else:
-    st.info("Carregue as partes da sua personagem na barra lateral e clique em 'Gerar Animação'.")
+# --- 3. INTERFACE STREAMLIT COM MÚLTIPLOS U
