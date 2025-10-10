@@ -3,7 +3,7 @@ from PIL import Image
 import numpy as np
 import os
 import tempfile
-import math # <--- GARANTIDO: IMPORTAÇÃO ESSENCIAL PARA ANIMAÇÃO SINUSOIDAL
+import math 
 
 # --- 1. CORREÇÃO CRÍTICA DE ERRO (PIL/Pillow > 9.0) ---
 # Garante a compatibilidade com MoviePy 1.0.3 resolvendo o erro ANTIALIAS
@@ -20,7 +20,7 @@ except AttributeError:
 from moviepy.editor import ImageClip, concatenate_videoclips, CompositeVideoClip
 
 
-# --- 2. FUNÇÃO PRINCIPAL DE GERAÇÃO DE VÍDEO (AGORA COM RECORTES) ---
+# --- 2. FUNÇÃO PRINCIPAL DE GERAÇÃO DE VÍDEO (CUTOUT ANIMATION) ---
 def create_cartoon_animation(parts, duration_sec, fps):
     """
     Cria uma animação de recortes (cutout animation) a partir de clipes de partes separadas.
@@ -33,18 +33,17 @@ def create_cartoon_animation(parts, duration_sec, fps):
         # PASSO 1: CARREGAR E PREPARAR AS PARTES NA ORDEM DE COMPOSIÇÃO (Fundo -> Frente)
         # ----------------------------------------------------------------------
         
-        # O "Vestido e Tronco" é a base, então ele deve ser o primeiro.
-        if 'Vestido e Tronco' not in parts:
-            # Esta verificação já é feita no bloco 'if st.button'
+        # 1. TRONCO (Corpo Base/Vestido) - Essencial para definir o tamanho do vídeo
+        if 'Tronco/Vestido' not in parts:
             return None
         
-        np_base_body = np.array(parts['Vestido e Tronco'].convert("RGBA"))
+        np_base_body = np.array(parts['Tronco/Vestido'].convert("RGBA"))
         clip_base_body = ImageClip(np_base_body, duration=clip_duration).set_pos(("center", "center"))
         video_size = clip_base_body.size # Define o tamanho final do vídeo baseado nesta peça
         final_clips.append(clip_base_body)
 
         
-        # --- PERNAS (Perna 1 e Perna 2) ---
+        # --- PERNAS (Perna 1 e Perna 2) - Estáticas por enquanto ---
         if 'Perna 1' in parts:
             np_perna1 = np.array(parts['Perna 1'].convert("RGBA"))
             clip_perna1 = ImageClip(np_perna1, duration=clip_duration)
@@ -60,12 +59,12 @@ def create_cartoon_animation(parts, duration_sec, fps):
             final_clips.append(clip_perna2)
 
 
-        # --- BRAÇO ESQUERDO (Com Animação) ---
+        # --- BRAÇO ESQUERDO (Com Animação: Aceno) ---
         if 'Braço Esquerdo' in parts:
             np_braco_esq = np.array(parts['Braço Esquerdo'].convert("RGBA"))
             clip_braco_esq = ImageClip(np_braco_esq, duration=clip_duration)
             
-            # POSICIONAMENTO DA JUNTA (AJUSTE MANUAL CRÍTICO!)
+            # Posição do Ombro (Ponto de Conexão no Corpo)
             OMBRO_ESQ_X = video_size[0] * 0.45 
             OMBRO_ESQ_Y = video_size[1] * 0.35 
             
@@ -73,15 +72,13 @@ def create_cartoon_animation(parts, duration_sec, fps):
             
             # FUNÇÃO DE MOVIMENTO (Aceno Simples)
             def get_rotation_esq(t):
-                # Rotação suave (senoidal) de -10 a 10 graus
                 return 10 * math.sin(2 * math.pi * t / clip_duration) 
 
-            # APLICAR ROTAÇÃO (Ajuste o 'center' para o ponto do ombro dentro do PNG do braço)
+            # APLICAR ROTAÇÃO (MoviePy 1.0.3 CORREÇÃO: Sem 'center')
             clip_braco_esq = clip_braco_esq.fx(
                 lambda clip: clip.rotate(
                     get_rotation_esq, 
-                    resample='bicubic', 
-                    center=(clip.w * 0.1, clip.h * 0.1) 
+                    resample='bicubic'
                 )
             )
             final_clips.append(clip_braco_esq)
@@ -96,14 +93,6 @@ def create_cartoon_animation(parts, duration_sec, fps):
             clip_braco_dir = clip_braco_dir.set_pos((OMBRO_DIR_X, OMBRO_DIR_Y))
             final_clips.append(clip_braco_dir)
             
-        # --- DEDOS ---
-        if 'Dedos' in parts:
-            np_dedos = np.array(parts['Dedos'].convert("RGBA"))
-            clip_dedos = ImageClip(np_dedos, duration=clip_duration)
-            # Posição dos Dedos: Offset da Mão Esquerda
-            clip_dedos = clip_dedos.set_pos((OMBRO_ESQ_X + 50, OMBRO_ESQ_Y + 100)) # Ajuste
-            final_clips.append(clip_dedos)
-
         # --- CABEÇA ---
         if 'Cabeça' in parts:
             np_cabeca = np.array(parts['Cabeça'].convert("RGBA"))
@@ -111,7 +100,14 @@ def create_cartoon_animation(parts, duration_sec, fps):
             clip_cabeca = clip_cabeca.set_pos(("center", video_size[1]*0.15)) 
             final_clips.append(clip_cabeca)
             
-        # --- OLHOS ---
+        # --- CABELO (Por cima da Cabeça) ---
+        if 'Cabelo' in parts:
+            np_cabelo = np.array(parts['Cabelo'].convert("RGBA"))
+            clip_cabelo = ImageClip(np_cabelo, duration=clip_duration)
+            clip_cabelo = clip_cabelo.set_pos(("center", video_size[1]*0.15)) 
+            final_clips.append(clip_cabelo)
+
+        # --- OLHOS (Na frente de tudo) ---
         if 'Olhos' in parts:
             np_olhos = np.array(parts['Olhos'].convert("RGBA"))
             clip_olhos = ImageClip(np_olhos, duration=clip_duration)
@@ -155,23 +151,21 @@ st.sidebar.header("1. Carregar Partes (PNG Transparente)")
 
 uploaded_parts = {}
 
-# Lista de partes que o usuário deve carregar, baseada nas suas imagens
+# LISTA ATUALIZADA (SEM DEDOS)
 part_names = [
-    'Vestido e Tronco',
+    'Tronco/Vestido', # Base do corpo
     'Cabeça',
+    'Cabelo',
     'Olhos',
     'Braço Esquerdo',
     'Braço Direito',
-    'Perna 1',
-    'Perna 2',
-    'Dedos' 
+    'Perna 1', # Perna Esquerda
+    'Perna 2'  # Perna Direita
 ]
 
-# Cria os botões de upload dinamicamente
 for name in part_names:
-    file = st.sidebar.file_uploader(f"Carregar: {name} (.png)", key=name, type=["png", "jpg", "jpeg"]) # Adicionando JPG/JPEG por segurança
+    file = st.sidebar.file_uploader(f"Carregar: {name} (.png)", key=name, type=["png", "jpg", "jpeg"]) 
     if file:
-        # Tenta abrir como PIL Image, se for JPG/JPEG, converte para RGBA (transparência)
         img = Image.open(file)
         if img.mode != 'RGBA':
             img = img.convert('RGBA')
@@ -187,8 +181,8 @@ fps = st.sidebar.slider("Quadros por Segundo (FPS)",
 
 if st.button("3. Gerar Animação"):
     
-    if 'Vestido e Tronco' not in uploaded_parts:
-        st.error("Por favor, carregue a imagem do 'Vestido e Tronco' para iniciar.")
+    if 'Tronco/Vestido' not in uploaded_parts:
+        st.error("Por favor, carregue a imagem do 'Tronco/Vestido' para iniciar.")
     else:
         video_output_path = None
         try:
