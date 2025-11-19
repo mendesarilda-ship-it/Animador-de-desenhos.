@@ -1,1 +1,8 @@
-ffmpeg
+# requirements.txt ou packages.txt
+streamlit
+Pillow
+moviepy
+numpy
+rembg
+# Se tiver problemas, adicione:
+# opencv-python
