@@ -1,7 +1,5 @@
-# requirements.txt ou packages.txt
 streamlit
 Pillow
 moviepy
 numpy
 rembg
-# opencv-python
