@@ -1,4 +1,7 @@
+# requirements.txt ou packages.txt
 streamlit
-moviepy==1.0.3
-numpy
 Pillow
+moviepy
+numpy
+rembg
+# opencv-python
