@@ -4,5 +4,4 @@ Pillow
 moviepy
 numpy
 rembg
-# Se tiver problemas, adicione:
 # opencv-python
